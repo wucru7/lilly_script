@@ -20,7 +20,7 @@ import matplotlib.pyplot as plt
 
 VIEWS = [(20, 30, "iso"), (0, 0, "front"), (90, 0, "top"), (0, 90, "lateral")]
 
-def render(V, F, colors, path, title="", cbar=None):
+def render(V, F, colors, path, title="", cbar=None, legend=None):
     fig = plt.figure(figsize=(14, 3.8))
     for i, (elev, azim, name) in enumerate(VIEWS):
         ax = fig.add_subplot(1, 4, i + 1, projection="3d")
@@ -33,6 +33,9 @@ def render(V, F, colors, path, title="", cbar=None):
     if cbar is not None:
         cax = fig.add_axes([0.92, 0.2, 0.01, 0.6])
         fig.colorbar(cbar, cax=cax)
+    if legend is not None:
+        fig.legend(handles=legend, loc="lower center", ncol=len(legend),
+                   fontsize=8, frameon=False)
     fig.suptitle(title, fontsize=10)
     fig.savefig(path, dpi=140, bbox_inches="tight")
     plt.close(fig)
@@ -45,14 +48,18 @@ sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
 render(V0, F, cmap(norm(s)), f"{out}/viz_signed_disp.png",
        title=f"signed displacement D0 vs D3 (mm), red = outward", cbar=sm)
 
+from matplotlib.patches import Patch
 names, ids = np.unique(reg, return_inverse=True)
 tab = plt.get_cmap("tab10")
+handles = [Patch(color=tab(i % 10), label=str(n)) for i, n in enumerate(names)]
 render(V0, F, tab(ids % 10), f"{out}/viz_regions.png",
-       title="  ".join(f"{n}={tab(i % 10)[:3]}" for i, n in enumerate(names)))
-print(dict(zip(names, np.bincount(ids))))
+       title="region labels", legend=handles)
+for n, c in zip(names, np.bincount(ids)):
+    print(f"{str(n):10s} {int(c)}")
 
 fig, ax = plt.subplots(figsize=(8, 4))
-ax.boxplot([s[reg == r] for r in names], labels=list(names), showfliers=False)
+ax.boxplot([s[reg == r] for r in names], tick_labels=[str(n) for n in names],
+           showfliers=False)
 ax.axhline(0, color="k", lw=0.5)
 ax.set_ylabel("signed displacement (mm)")
 plt.xticks(rotation=20)
