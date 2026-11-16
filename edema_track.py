@@ -17,7 +17,8 @@ Convention:
 Pipeline (one subject):
   1. Load both PLYs with trimesh (process=False), ignore colors.
   2. Rigid Kabsch alignment on ALL vertices (correspondence is known).
-  3. PCA-based canonicalisation (shared transform applied to both meshes).
+  3. Canonicalisation: centre on baseline centroid, keep raw axes
+     (x=length, y=width, z=height), rotate so toes point to +x.
   4. Signed per-vertex displacement along baseline normals (correspondence
      is exact — no ICP / raycast needed).
   5. Geometric 7-region partition (heel / midfoot / forefoot / toes / dorsum /
@@ -234,7 +235,9 @@ def render_region_bars(region_stats, out_png, title=""):
     fig, ax = plt.subplots(figsize=(8, 4.5))
     colors = ["tab:blue" if y >= 0 else "tab:orange" for y in ys_mean]
     ax.bar(xs, ys_mean, color=colors, label="mean signed")
-    ax.errorbar(xs, ys_mean, yerr=[ys_mean - ys_p5, ys_p95 - ys_mean],
+    # clip: with skewed data the mean can fall outside [p5, p95]
+    ax.errorbar(xs, ys_mean, yerr=[np.clip(ys_mean - ys_p5, 0, None),
+                                   np.clip(ys_p95 - ys_mean, 0, None)],
                 fmt="none", ecolor="black", capsize=4, label="p5–p95")
     ax.axhline(0, color="k", lw=0.5)
     ax.set_ylabel("signed displacement (mm, outward = +)")
@@ -302,17 +305,20 @@ def main():
     post_rms_mm = float(np.sqrt((resid_k ** 2).mean())) * 1e3
     print(f"  post-align RMS {post_rms_mm:.2f} mm, max {resid_k.max() * 1e3:.2f} mm")
 
-    # [3/7] Canonicalise
-    print(f"[3/7] PCA canonicalisation")
-    V_b_c, V_f_c, T_canon = pca_canonicalise_pair(V_b_raw, V_f_aligned)
-    # Fix z-up based on baseline normals
-    R_fixed = fix_z_up(V_b_raw, np.asarray(m_b.vertex_normals), T_canon[:3, :3])
-    if not np.allclose(R_fixed, T_canon[:3, :3]):
-        print(f"  flipping z to put dorsum up")
-        c = V_b_raw.mean(axis=0)
-        V_b_c = (V_b_raw - c) @ R_fixed.T
-        V_f_c = (V_f_aligned - c) @ R_fixed.T
-        T_canon = np.eye(4); T_canon[:3, :3] = R_fixed; T_canon[:3, 3] = -R_fixed @ c
+    # [3/7] Canonicalise: centre only, keep raw axes (x=length, y=width, z=height).
+    # PCA was dropped: it ranked height above width (the leg adds vertical
+    # spread) and left the heel-to-toe sign arbitrary, which mislabelled regions.
+    print(f"[3/7] Canonicalisation (centre + heel-to-toe sign)")
+    c = V_b_raw.mean(axis=0)
+    V_b_c = V_b_raw - c
+    V_f_c = V_f_aligned - c
+    # The leg rises above the heel, so put the heel at -x and the toes at +x
+    top = V_b_c[:, 2] >= np.quantile(V_b_c[:, 2], 0.90)
+    if V_b_c[top, 0].mean() > 0:
+        rot = np.diag([-1.0, -1.0, 1.0])   # 180 deg about z: no mirroring
+        V_b_c = V_b_c @ rot
+        V_f_c = V_f_c @ rot
+        print("  rotated 180 deg about z so toes point to +x")
     m_b_canon = m_b.copy(); m_b_canon.vertices = V_b_c
     N_b_c = np.asarray(m_b_canon.vertex_normals)
     print(f"  canonical bbox  x[{V_b_c[:,0].min():+.3f}, {V_b_c[:,0].max():+.3f}]  "
