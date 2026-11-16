@@ -67,3 +67,30 @@ fig.tight_layout()
 fig.savefig(f"{out}/viz_region_box.png", dpi=140)
 plt.close(fig)
 print("saved", f"{out}/viz_region_box.png")
+
+import sys, trimesh
+sys.path.insert(0, f"/node/scratch/{os.environ['USER']}")
+from edema_track import sub_mesh, mesh_graph_laplacian, spectral_basis, canonical_prototype_field
+
+N0 = np.asarray(trimesh.Trimesh(V0, F, process=False).vertex_normals)
+proto = canonical_prototype_field(V0, N0, amp_mm=4.0, sigma_m=0.025)
+disp_vec = s[:, None] * N0
+
+regions = [str(r) for r in names if (reg == r).sum() >= 100]
+fig, axes = plt.subplots(len(regions), 1, figsize=(9, 2.2 * len(regions)), sharex=True)
+for ax, r in zip(np.atleast_1d(axes), regions):
+    vidx = np.where(reg == r)[0]
+    Vs, Fs = sub_mesh(V0, F, vidx)
+    K = min(50, max(5, len(vidx) // 30))
+    Phi = spectral_basis(mesh_graph_laplacian(Vs, Fs), K)
+    alpha = np.linalg.norm(Phi.T @ disp_vec[vidx], axis=1)
+    alpha_p = np.linalg.norm(Phi.T @ proto[vidx], axis=1)
+    ax.bar(np.arange(K), alpha, color="tab:blue", label="observed |alpha_k|")
+    ax.plot(np.arange(K), alpha_p, "k.-", ms=3, lw=0.8, label="prototype")
+    ax.set_ylabel(r, rotation=0, ha="right", fontsize=9)
+axes[0].legend(fontsize=8)
+axes[-1].set_xlabel("spectral mode k (low = smooth, high = local detail)")
+fig.tight_layout()
+fig.savefig(f"{out}/viz_alpha_spectra.png", dpi=140)
+plt.close(fig)
+print("saved", f"{out}/viz_alpha_spectra.png")
