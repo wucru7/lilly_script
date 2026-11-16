@@ -14,30 +14,49 @@ base = pv.PolyData(V0, faces_pv)
 fol = pv.PolyData(V1, faces_pv)
 print(len(V0), s.min(), s.max())
 
-vmax = np.quantile(np.abs(s), 0.99)
-base["signed_mm"] = s
-p = pv.Plotter()
-p.add_mesh(base, scalars="signed_mm", cmap="RdBu_r", clim=[-vmax, vmax])
-p.show()
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+VIEWS = [(20, 30, "iso"), (0, 0, "front"), (90, 0, "top"), (0, 90, "lateral")]
+
+def render(V, F, colors, path, title="", cbar=None):
+    fig = plt.figure(figsize=(14, 3.8))
+    for i, (elev, azim, name) in enumerate(VIEWS):
+        ax = fig.add_subplot(1, 4, i + 1, projection="3d")
+        poly = ax.plot_trisurf(V[:, 0], V[:, 1], V[:, 2], triangles=F,
+                               linewidth=0, antialiased=False, shade=False)
+        poly.set_facecolors(colors[F].mean(axis=1))
+        ax.view_init(elev=elev, azim=azim)
+        ax.set_box_aspect(np.ptp(V, axis=0))
+        ax.set_axis_off(); ax.set_title(name, fontsize=9)
+    if cbar is not None:
+        cax = fig.add_axes([0.92, 0.2, 0.01, 0.6])
+        fig.colorbar(cbar, cax=cax)
+    fig.suptitle(title, fontsize=10)
+    fig.savefig(path, dpi=140, bbox_inches="tight")
+    plt.close(fig)
+    print("saved", path)
+
+vmax = float(np.quantile(np.abs(s), 0.99))
+norm = plt.Normalize(-vmax, vmax)
+cmap = plt.get_cmap("RdBu_r")
+sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
+render(V0, F, cmap(norm(s)), f"{out}/viz_signed_disp.png",
+       title=f"signed displacement D0 vs D3 (mm), red = outward", cbar=sm)
 
 names, ids = np.unique(reg, return_inverse=True)
-base["region"] = ids
-p = pv.Plotter()
-p.add_mesh(base, scalars="region", cmap="tab10", categories=True)
-p.show()
+tab = plt.get_cmap("tab10")
+render(V0, F, tab(ids % 10), f"{out}/viz_regions.png",
+       title="  ".join(f"{n}={tab(i % 10)[:3]}" for i, n in enumerate(names)))
 print(dict(zip(names, np.bincount(ids))))
 
-p = pv.Plotter()
-p.add_mesh(base, color="lightgray", opacity=0.5, label="D3 healthy")
-p.add_mesh(fol, color="tomato", opacity=0.5, label="D0 edema")
-p.add_legend()
-p.show()
-
-import matplotlib.pyplot as plt
 fig, ax = plt.subplots(figsize=(8, 4))
-order = [r for r in names]
-ax.boxplot([s[reg == r] for r in order], labels=order, showfliers=False)
+ax.boxplot([s[reg == r] for r in names], labels=list(names), showfliers=False)
 ax.axhline(0, color="k", lw=0.5)
 ax.set_ylabel("signed displacement (mm)")
 plt.xticks(rotation=20)
-plt.show()
+fig.tight_layout()
+fig.savefig(f"{out}/viz_region_box.png", dpi=140)
+plt.close(fig)
+print("saved", f"{out}/viz_region_box.png")
