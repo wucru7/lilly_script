@@ -120,3 +120,20 @@ import pandas as pd
 df = pd.DataFrame(rows).set_index("region").round(2)
 df.to_csv(f"{out}/spectral_lowpass_summary.csv")
 df
+
+from scipy.signal import find_peaks
+for q in [0.85, 0.80, 0.75]:
+    zone = V0[:, 0] >= np.quantile(V0[:, 0], q)
+    y = V0[zone, 1]
+    edges = np.linspace(y.min(), y.max(), 121)
+    b = np.clip(np.digitize(V0[:, 1], edges) - 1, 0, 119)
+    prof = np.array([V0[b == k, 0].max() if (b == k).any() else np.nan for k in range(120)])
+    for depth_mm in [2, 1, 0.5]:
+        d, p = find_peaks(-prof, prominence=depth_mm / 1000)
+        print(f"zone q={q}  min depth {depth_mm} mm: {len(d)} dips, depths(mm)={np.round(p['prominences']*1000, 1).tolist()}")
+
+fig, ax = plt.subplots(figsize=(8, 3))
+ax.plot((edges[:-1] + edges[1:]) / 2 * 1000, prof * 1000)
+ax.set_xlabel("y, across the foot (mm)"); ax.set_ylabel("furthest forward x (mm)")
+fig.tight_layout(); fig.savefig(f"{out}/viz_toe_profile.png", dpi=140); plt.close(fig)
+print("saved", f"{out}/viz_toe_profile.png")
