@@ -171,17 +171,19 @@ def canonical_prototype_field(V, N, amp_mm=4.0,
 # ---------------------------------------------------------------------------
 # Region partition (geometric heuristic since no keypoints supplied)
 # ---------------------------------------------------------------------------
-REGION_NAMES = ["heel_dorsal", "heel_plantar",
-                "midfoot_dorsal", "midfoot_plantar",
-                "forefoot_dorsal", "forefoot_plantar",
-                "big_toe", "lesser_toes",
-                "front_ankle", "ankle_other"]
+_SLICES = ["heel", "midfoot", "forefoot"]
+_SURF = ["dorsal", "plantar"]
+_ML = ["medial", "lateral"]
+REGION_NAMES = ([f"{a}_{b}_{c}" for a in _SLICES for b in _SURF for c in _ML]
+                + [f"{a}_{b}" for a in _SLICES for b in _SURF]   # used if ML split is off
+                + ["big_toe", "lesser_toes", "front_ankle", "ankle_other"])
 # "leg_cut" is also assigned but kept out of REGION_NAMES (artifact zone)
 
 
 def define_regions(V, N, leg_cut_z_quantile=0.95, ankle_height_frac=0.45,
                    toe_length_m=0.045, big_toe_width_frac=0.38,
-                   big_toe_side="auto", front_ankle_nx=0.3):
+                   big_toe_side="auto", front_ankle_nx=0.3,
+                   split_medial_lateral=True, n_midline_bins=20):
     """Non-overlapping partition of the baseline vertices. Every vertex gets
     exactly one label from mutually exclusive conditions (no rule overwrites
     another). Frame: x heel->toe, y across, z up, metres.
@@ -192,9 +194,12 @@ def define_regions(V, N, leg_cut_z_quantile=0.95, ankle_height_frac=0.45,
       big_toe      foot below ankle band, within toe_length_m of the toe tip,
                    on the big-toe side, big_toe_width_frac of the toe width
       lesser_toes  rest of that toe zone
-      heel/midfoot/forefoot x {dorsal, plantar}
+      heel/midfoot/forefoot x {dorsal, plantar} x {medial, lateral}
                    remaining foot, three equal-count slices along x, split by
-                   whether the normal points up (dorsal) or down (plantar)
+                   whether the normal points up (dorsal) or down (plantar),
+                   then by which side of the foot midline the vertex is on
+                   (medial = big-toe side). The midline is the median y in
+                   n_midline_bins bins along x, so it follows the foot's curve.
 
     ankle band = from ankle_height_frac of the way between sole (min z) and
     the leg cut, up to the leg cut.
@@ -231,18 +236,34 @@ def define_regions(V, N, leg_cut_z_quantile=0.95, ankle_height_frac=0.45,
     xq = np.quantile(x[rest], [1 / 3, 2 / 3])
     up = N[:, 2] >= 0
 
-    conds = [leg_cut,
-             ankle_band & (N[:, 0] > front_ankle_nx),
-             ankle_band,
-             big,
-             toe_zone,
-             rest & (x <= xq[0]) & up, rest & (x <= xq[0]),
-             rest & (x <= xq[1]) & up, rest & (x <= xq[1]),
-             rest & up]
-    labels = ["leg_cut", "front_ankle", "ankle_other", "big_toe", "lesser_toes",
-              "heel_dorsal", "heel_plantar", "midfoot_dorsal", "midfoot_plantar",
-              "forefoot_dorsal"]
-    region = np.select(conds, labels, default="forefoot_plantar").astype("U16")
+    region = np.full(len(V), "", dtype="U24")
+    region[leg_cut] = "leg_cut"
+    fa = ankle_band & (N[:, 0] > front_ankle_nx)
+    region[fa] = "front_ankle"
+    region[ankle_band & ~fa] = "ankle_other"
+    region[big] = "big_toe"
+    region[toe_zone & ~big] = "lesser_toes"
+
+    sl = np.select([x <= xq[0], x <= xq[1]], ["heel", "midfoot"], "forefoot")
+    surf = np.where(up, "dorsal", "plantar")
+    lab = np.char.add(np.char.add(sl, "_"), surf)
+    if split_medial_lateral:
+        # foot midline: median y in bins along x, interpolated per vertex
+        xr = x[rest]
+        edges = np.quantile(xr, np.linspace(0, 1, n_midline_bins + 1))
+        cen = 0.5 * (edges[:-1] + edges[1:])
+        bi = np.clip(np.searchsorted(edges, xr, side="right") - 1, 0, n_midline_bins - 1)
+        yr = y[rest]
+        med = np.array([np.median(yr[bi == k]) if (bi == k).any() else np.nan
+                        for k in range(n_midline_bins)])
+        ok = ~np.isnan(med)
+        y_mid_x = np.interp(x, cen[ok], med[ok])
+        on_big_side = (y < y_mid_x) if side == "-y" else (y >= y_mid_x)
+        lab = np.char.add(np.char.add(lab, "_"),
+                          np.where(on_big_side, "medial", "lateral"))
+    region[rest] = lab[rest]
+
+    assert (region != "").all(), "some vertices were not assigned a region"
     print(f"  [regions] ankle band starts {(z_ank - z.min())*1e3:.0f} mm above "
           f"the sole; leg cut at {(z_cut - z.min())*1e3:.0f} mm; toe zone "
           f"{toe_length_m*1e3:.0f} mm")
@@ -332,6 +353,9 @@ def main():
                     help="Big toe = this fraction of the toe-zone width.")
     ap.add_argument("--big_toe_side", choices=["auto", "+y", "-y"],
                     default="auto")
+    ap.add_argument("--no_medial_lateral", action="store_true",
+                    help="Do not split heel/midfoot/forefoot into medial and "
+                         "lateral halves.")
     ap.add_argument("--front_ankle_nx", type=float, default=0.3,
                     help="Front ankle = ankle-band vertices whose normal "
                          "x-component exceeds this (faces forward).")
@@ -410,13 +434,16 @@ def main():
     region, leg_cut_mask = define_regions(
         V_b_c, N_b_c, args.leg_cut_z_quantile, args.ankle_height_frac,
         args.toe_length_mm / 1000, args.big_toe_width_frac,
-        args.big_toe_side, args.front_ankle_nx)
+        args.big_toe_side, args.front_ankle_nx,
+        split_medial_lateral=not args.no_medial_lateral)
     print(f"  leg-cut zone (top {int((1-args.leg_cut_z_quantile)*100)}% z): "
           f"{int(leg_cut_mask.sum())} vertices (reported separately below)")
 
     region_stats = {}
     for r in REGION_NAMES:
         vidx = np.where(region == r)[0]
+        if len(vidx) == 0:
+            continue                      # region not used in this mode
         if len(vidx) < 50:
             region_stats[r] = {"n_vertices": int(len(vidx)), "note": "too small"}
             continue
@@ -434,6 +461,8 @@ def main():
         }
     for r in REGION_NAMES:
         st = region_stats.get(r, {})
+        if not st:
+            continue
         if "mean_signed_mm" not in st:
             print(f"  {r:9s}: {st.get('note', 'n/a')}  (n={st.get('n_vertices', 0)})")
             continue
@@ -521,6 +550,7 @@ def main():
             "big_toe_width_frac": args.big_toe_width_frac,
             "big_toe_side": args.big_toe_side,
             "front_ankle_nx": args.front_ankle_nx,
+            "split_medial_lateral": not args.no_medial_lateral,
         },
     }
     with open(os.path.join(args.out, "results.json"), "w") as f:
