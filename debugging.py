@@ -1,12 +1,17 @@
-import os, sys, glob, importlib, numpy as np, pandas as pd, trimesh
+import os, sys, glob, getpass, importlib
+import numpy as np, pandas as pd, trimesh
 import matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-USER = os.environ["USER"]
+USER = os.environ.get("USER") or getpass.getuser()
 run = sorted(glob.glob(f"/node/scratch/{USER}/runs/*"))[-1]
-print("using", run)
-V0 = np.load(f"{run}/baseline_vertices_canonical.npy"); F = np.load(f"{run}/faces.npy")
-s = np.load(f"{run}/signed_disp_mm.npy"); reg = np.load(f"{run}/region_labels.npy").astype(str)
+print("user:", USER, " using:", run)
+
+V0 = np.load(f"{run}/baseline_vertices_canonical.npy")
+F = np.load(f"{run}/faces.npy")
+s = np.load(f"{run}/signed_disp_mm.npy")
+reg = np.load(f"{run}/region_labels.npy").astype(str)
+
 sys.path.insert(0, f"/node/scratch/{USER}")
 import edema_track; importlib.reload(edema_track)
 
@@ -33,7 +38,10 @@ print(df)
 
 fig, ax = plt.subplots(figsize=(10, 4))
 ax.bar(df.index, df["bump5_p95_mm"], color=np.where(df["bump5_p95_mm"] >= 0, "tab:red", "tab:blue"))
-ax.axhline(0, color="k", lw=0.5); ax.set_ylabel("outward bump, first 5 modes, p95 (mm)")
-plt.xticks(rotation=35, ha="right"); fig.tight_layout()
-fig.savefig(f"{run}/viz_score_low5.png", dpi=140); plt.close(fig)
+ax.axhline(0, color="k", lw=0.5)
+ax.set_ylabel("outward bump, first 5 modes, p95 (mm)")
+plt.xticks(rotation=35, ha="right")
+fig.tight_layout()
+fig.savefig(f"{run}/viz_score_low5.png", dpi=140)
+plt.close(fig)
 print("saved", f"{run}/viz_score_low5.png")
