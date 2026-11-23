@@ -36,3 +36,8 @@ for r in np.unique(reg):
     xr = x[reg == r] * 1000
     print(f"  {str(r):9s} n={int((reg == r).sum()):>6}  x from {xr.min():+7.1f} to {xr.max():+7.1f}  "
           f"(span {np.ptp(xr):5.1f} mm)")
+
+override = np.isin(reg.astype(str), ["dorsum", "sole", "ankle"])
+mismatch = (slice_ != reg.astype(str)) & ~override
+print("vertices whose length label disagrees:", int(mismatch.sum()))
+print(pd.Series(reg.astype(str)[mismatch]).value_counts())
