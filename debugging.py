@@ -28,21 +28,25 @@ names, ids = np.unique(reg, return_inverse=True)
 
 VIEWS = [(20, 30, "iso"), (0, 0, "front"), (90, -90, "top"),
          (0, 90, "lateral"), (-90, -90, "bottom")]
-def render(colors, path, title="", cbar=None, legend=None):
-    fig = plt.figure(figsize=(18, 3.8))
+
+def render(colors, path, title="", cbar=None, legend=None, ncols=3):
+    nrows = int(np.ceil(len(VIEWS) / ncols))
+    fig = plt.figure(figsize=(4.5 * ncols, 4.0 * nrows))
     for i, (el, az, nm) in enumerate(VIEWS):
-        ax = fig.add_subplot(1, len(VIEWS), i + 1, projection="3d")
+        ax = fig.add_subplot(nrows, ncols, i + 1, projection="3d")
         poly = ax.plot_trisurf(V0[:, 0], V0[:, 1], V0[:, 2], triangles=F,
                                linewidth=0, antialiased=False, shade=False)
         poly.set_facecolors(colors[F].mean(axis=1))
         ax.view_init(elev=el, azim=az); ax.set_box_aspect(np.ptp(V0, axis=0))
-        ax.set_axis_off(); ax.set_title(nm, fontsize=9)
+        ax.set_axis_off(); ax.set_title(nm, fontsize=10)
+    # the empty slot (bottom right with 5 views) holds the colorbar or legend
     if cbar is not None:
-        fig.colorbar(cbar, cax=fig.add_axes([0.92, 0.2, 0.01, 0.6]))
+        fig.colorbar(cbar, cax=fig.add_axes([0.72, 0.12, 0.015, 0.3]),
+                     label="signed disp (mm), red = outward")
     if legend is not None:
-        fig.legend(handles=legend, loc="lower center", ncol=min(len(legend), 6),
-                   fontsize=8, frameon=False, bbox_to_anchor=(0.5, -0.12))
-    fig.suptitle(title, fontsize=10)
+        fig.legend(handles=legend, loc="center", bbox_to_anchor=(0.83, 0.27),
+                   ncol=1, fontsize=8, frameon=False)
+    fig.suptitle(title, fontsize=11)
     fig.savefig(path, dpi=140, bbox_inches="tight"); plt.close(fig)
 
 # 3) region map
