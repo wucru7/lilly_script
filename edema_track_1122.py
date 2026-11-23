@@ -174,8 +174,9 @@ def canonical_prototype_field(V, N, amp_mm=4.0,
 _SLICES = ["heel", "midfoot", "forefoot"]
 _SURF = ["dorsal", "plantar"]
 _ML = ["medial", "lateral"]
-REGION_NAMES = ([f"{a}_{b}_{c}" for a in _SLICES for b in _SURF for c in _ML]
-                + [f"{a}_{b}" for a in _SLICES for b in _SURF]   # used if ML split is off
+REGION_NAMES = (["heel_dorsal", "heel_plantar"]
+                + [f"{a}_{b}_{c}" for a in _SLICES[1:] for b in _SURF for c in _ML]
+                + [f"{a}_{b}" for a in _SLICES[1:] for b in _SURF]   # used if ML split is off
                 + ["big_toe", "lesser_toes", "front_ankle", "ankle_other"])
 # "leg_cut" is also assigned but kept out of REGION_NAMES (artifact zone)
 
@@ -194,7 +195,7 @@ def define_regions(V, N, leg_cut_z_quantile=0.95, ankle_height_frac=0.45,
       big_toe      foot below ankle band, within toe_length_m of the toe tip,
                    on the big-toe side, big_toe_width_frac of the toe width
       lesser_toes  rest of that toe zone
-      heel/midfoot/forefoot x {dorsal, plantar} x {medial, lateral}
+      heel x {dorsal, plantar}; midfoot/forefoot x {dorsal, plantar} x {medial, lateral}
                    remaining foot, three equal-count slices along x, split by
                    whether the normal points up (dorsal) or down (plantar),
                    then by which side of the foot midline the vertex is on
@@ -259,8 +260,11 @@ def define_regions(V, N, leg_cut_z_quantile=0.95, ankle_height_frac=0.45,
         ok = ~np.isnan(med)
         y_mid_x = np.interp(x, cen[ok], med[ok])
         on_big_side = (y < y_mid_x) if side == "-y" else (y >= y_mid_x)
-        lab = np.char.add(np.char.add(lab, "_"),
-                          np.where(on_big_side, "medial", "lateral"))
+        split = sl != "heel"              # heel stays whole; midfoot + forefoot split
+        lab = np.where(split,
+                       np.char.add(np.char.add(lab, "_"),
+                                   np.where(on_big_side, "medial", "lateral")),
+                       lab)
     region[rest] = lab[rest]
 
     assert (region != "").all(), "some vertices were not assigned a region"
